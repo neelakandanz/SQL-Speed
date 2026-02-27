@@ -1,0 +1,13 @@
+name: sql_speed_benchmarks
+description: Performance benchmarks for sql_speed vs other database packages.
+publish_to: none
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  sql_speed:
+    path: ../packages/sql_speed
+  sqlite3_flutter_libs: ^0.5.0

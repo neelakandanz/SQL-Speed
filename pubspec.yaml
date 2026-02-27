@@ -1,0 +1,10 @@
+name: sql_speed_workspace
+publish_to: none
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+workspace:
+  - packages/sql_speed_core
+  - packages/sql_speed
+  - packages/sql_speed_generator

@@ -1,0 +1,31 @@
+name: sql_speed_generator
+description: >-
+  Code generation for sql_speed. Generates CRUD operations, type mappings,
+  and stream watchers from annotated Dart classes.
+version: 1.0.0
+homepage: https://github.com/user/sql_speed
+repository: https://github.com/user/sql_speed/tree/main/packages/sql_speed_generator
+issue_tracker: https://github.com/user/sql_speed/issues
+topics:
+  - database
+  - code-generation
+  - sqlite
+  - build-runner
+
+resolution: workspace
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  build: ^2.4.0
+  source_gen: ^1.5.0
+  analyzer: ^6.0.0
+  meta: ^1.11.0
+  sql_speed_core:
+    path: ../sql_speed_core
+
+dev_dependencies:
+  test: ^1.25.0
+  build_test: ^2.2.0
+  lints: ^4.0.0

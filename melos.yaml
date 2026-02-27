@@ -1,0 +1,40 @@
+name: sql_speed
+repository: https://github.com/user/sql_speed
+
+packages:
+  - packages/**
+  - benchmarks
+  - examples/**
+
+command:
+  bootstrap:
+    usePubspecOverrides: true
+
+  version:
+    branch: main
+    message: "chore: release {versioning}"
+
+scripts:
+  analyze:
+    run: dart analyze --fatal-infos
+    exec:
+      concurrency: 3
+    packageFilters:
+      dirExists: lib
+
+  format:
+    run: dart format --set-exit-if-changed .
+    exec:
+      concurrency: 3
+
+  test:
+    run: dart test
+    exec:
+      concurrency: 1
+    packageFilters:
+      dirExists: test
+
+  test:core:
+    run: dart test
+    packageFilters:
+      scope: sql_speed_core

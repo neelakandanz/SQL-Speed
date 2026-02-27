@@ -1,0 +1,28 @@
+name: sql_speed_core
+description: >-
+  High-performance SQL-first local database engine for Dart.
+  Pure Dart core with prepared statement caching, background isolates,
+  reactive streams, and optional encryption.
+version: 1.0.0
+homepage: https://github.com/user/sql_speed
+repository: https://github.com/user/sql_speed/tree/main/packages/sql_speed_core
+issue_tracker: https://github.com/user/sql_speed/issues
+topics:
+  - database
+  - sqlite
+  - sql
+  - reactive
+  - performance
+
+resolution: workspace
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  sqlite3: ^2.4.0
+  meta: ^1.11.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^4.0.0

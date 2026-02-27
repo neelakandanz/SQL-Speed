@@ -1,0 +1,8 @@
+builders:
+  sql_speed:
+    import: "package:sql_speed_generator/src/builder.dart"
+    builder_factories: ["sqlSpeedBuilder"]
+    build_extensions: {".dart": [".sql_speed.g.part"]}
+    auto_apply: dependents
+    build_to: cache
+    applies_builders: ["source_gen|combining_builder"]

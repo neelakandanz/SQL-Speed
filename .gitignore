@@ -1,0 +1,50 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+.vscode/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .dart_tool/ directory is local to each package
+.dart_tool/
+
+# Flutter/Dart related
+build/
+-packages/
+.pub-cache/
+.pub/
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
+
+# Avoid committing developer-specific properties
+android/local.properties
+android/key.properties
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+
+# Web related
+.web_assets/
+.dart_tool/
+
+# Windows related
+/build/
+/windows/flutter/ephemeral/
+
+# Melos related
+.melos_tool/
+
+# AI Coding Assistants
+.claude/
+.gemini/
