@@ -5,12 +5,14 @@ import '../database/database_config.dart';
 import '../exceptions/exceptions.dart';
 import '../utils/logger.dart';
 import 'connection_pool.dart';
+import 'database_engine.dart';
 import 'query_executor.dart';
 
 /// Message types sent between main and database isolates.
 enum _MessageType {
   execute,
   query,
+  queryRaw,
   insert,
   update,
   delete,
@@ -62,7 +64,7 @@ class _IsolateResponse {
 /// All database operations are sent to a dedicated isolate via
 /// SendPort/ReceivePort, keeping the main (UI) thread free from
 /// blocking I/O.
-class IsolateEngine {
+class IsolateEngine implements DatabaseEngine {
   IsolateEngine._();
 
   Isolate? _isolate;
@@ -90,6 +92,10 @@ class IsolateEngine {
         maxReadConnections: config.maxReadConnections,
         statementCacheSize: config.statementCacheSize,
         enableLogging: config.enableLogging,
+        pageSize: config.pageSize,
+        cacheSize: config.cacheSize,
+        mmapSize: config.mmapSize,
+        tempStoreIndex: config.tempStore.index,
       ),
     );
 
@@ -122,6 +128,7 @@ class IsolateEngine {
   }
 
   /// Executes a SQL statement with no return value.
+  @override
   Future<void> execute(String sql, [List<Object?>? parameters]) {
     return _request<void>(_IsolateRequest(
       type: _MessageType.execute,
@@ -132,6 +139,7 @@ class IsolateEngine {
   }
 
   /// Executes a SELECT query and returns results.
+  @override
   Future<List<Map<String, Object?>>> query(
     String sql, [
     List<Object?>? parameters,
@@ -144,7 +152,22 @@ class IsolateEngine {
     ));
   }
 
+  /// Executes a SELECT query and returns raw row data (column-indexed).
+  @override
+  Future<List<List<Object?>>> queryRaw(
+    String sql, [
+    List<Object?>? parameters,
+  ]) {
+    return _request<List<List<Object?>>>(_IsolateRequest(
+      type: _MessageType.queryRaw,
+      id: _nextId++,
+      sql: sql,
+      parameters: parameters,
+    ));
+  }
+
   /// Executes an INSERT and returns the last insert row ID.
+  @override
   Future<int> insert(String sql, [List<Object?>? parameters]) {
     return _request<int>(_IsolateRequest(
       type: _MessageType.insert,
@@ -155,6 +178,7 @@ class IsolateEngine {
   }
 
   /// Executes an UPDATE/DELETE and returns the affected row count.
+  @override
   Future<int> update(String sql, [List<Object?>? parameters]) {
     return _request<int>(_IsolateRequest(
       type: _MessageType.update,
@@ -165,6 +189,7 @@ class IsolateEngine {
   }
 
   /// Executes multiple operations in a single transaction.
+  @override
   Future<void> transaction(
     List<({String sql, List<Object?>? parameters})> operations,
   ) {
@@ -178,6 +203,7 @@ class IsolateEngine {
   }
 
   /// Executes batch operations in a single transaction.
+  @override
   Future<void> batch(
     List<({String sql, List<Object?>? parameters})> operations,
   ) {
@@ -191,6 +217,7 @@ class IsolateEngine {
   }
 
   /// Closes the database and kills the background isolate.
+  @override
   Future<void> close() async {
     if (_closed) return;
 
@@ -228,6 +255,10 @@ class _IsolateInit {
     required this.maxReadConnections,
     required this.statementCacheSize,
     required this.enableLogging,
+    required this.pageSize,
+    required this.cacheSize,
+    required this.mmapSize,
+    required this.tempStoreIndex,
   });
 
   final SendPort sendPort;
@@ -235,6 +266,10 @@ class _IsolateInit {
   final int maxReadConnections;
   final int statementCacheSize;
   final bool enableLogging;
+  final int pageSize;
+  final int cacheSize;
+  final int mmapSize;
+  final int tempStoreIndex;
 }
 
 /// Entry point for the database isolate.
@@ -242,12 +277,21 @@ void _isolateMain(_IsolateInit init) {
   final receivePort = ReceivePort();
   init.sendPort.send(receivePort.sendPort);
 
+  // Build a lightweight config to pass PRAGMAs to the pool
+  final pragmaConfig = DatabaseConfig(
+    path: init.path,
+    pageSize: init.pageSize,
+    cacheSize: init.cacheSize,
+    mmapSize: init.mmapSize,
+    tempStore: TempStore.values[init.tempStoreIndex],
+  );
+
   final pool = ConnectionPool(
     path: init.path,
     maxReadConnections: init.maxReadConnections,
     statementCacheSize: init.statementCacheSize,
   );
-  pool.open();
+  pool.open(config: pragmaConfig);
 
   final logger = init.enableLogging ? SqlSpeedLogger() : null;
 
@@ -286,6 +330,19 @@ void _isolateMain(_IsolateInit init) {
             pool.releaseRead(conn);
           }
 
+        case _MessageType.queryRaw:
+          final conn = pool.acquireRead();
+          try {
+            final resultSet = _getReadExecutor(conn)
+                .queryRaw(message.sql!, message.parameters);
+            final rows = resultSet.rows
+                .map((List<Object?> row) => row.toList())
+                .toList();
+            init.sendPort.send(_IsolateResponse(id: message.id, data: rows));
+          } finally {
+            pool.releaseRead(conn);
+          }
+
         case _MessageType.insert:
           final id = writeExecutor.insert(message.sql!, message.parameters);
           init.sendPort.send(_IsolateResponse(id: message.id, data: id));
@@ -298,10 +355,31 @@ void _isolateMain(_IsolateInit init) {
         case _MessageType.transaction:
         case _MessageType.batch:
           final db = pool.writeConnection!.database;
+          final ops = message.operations!;
+          if (ops.isEmpty) {
+            init.sendPort.send(_IsolateResponse(id: message.id));
+            break;
+          }
           db.execute('BEGIN TRANSACTION');
           try {
-            for (final op in message.operations!) {
-              writeExecutor.execute(op.sql, op.parameters);
+            // Fast path: if all SQL strings are identical, prepare once and re-bind
+            final firstSql = ops.first.sql;
+            final allSame = ops.every((op) => op.sql == firstSql);
+
+            if (allSame) {
+              final stmt = pool.writeConnection!.cache.get(firstSql);
+              for (final op in ops) {
+                final params = op.parameters;
+                if (params != null && params.isNotEmpty) {
+                  stmt.execute(writeExecutor.convertParams(params));
+                } else {
+                  stmt.execute(const <Object?>[]);
+                }
+              }
+            } else {
+              for (final op in ops) {
+                writeExecutor.execute(op.sql, op.parameters);
+              }
             }
             db.execute('COMMIT');
             init.sendPort.send(_IsolateResponse(id: message.id));

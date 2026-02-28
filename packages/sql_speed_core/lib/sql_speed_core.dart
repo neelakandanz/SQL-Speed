@@ -21,9 +21,11 @@ export 'src/database/database.dart';
 export 'src/database/database_factory.dart';
 
 // Engine
+export 'src/engine/database_engine.dart';
 export 'src/engine/statement_cache.dart';
 export 'src/engine/connection_pool.dart';
 export 'src/engine/isolate_engine.dart';
+export 'src/engine/sync_engine.dart';
 export 'src/engine/query_executor.dart';
 
 // Streams

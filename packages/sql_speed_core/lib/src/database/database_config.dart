@@ -19,6 +19,18 @@ enum JournalMode {
   off,
 }
 
+/// Where SQLite stores temporary tables and indices.
+enum TempStore {
+  /// Use the compile-time default (usually file).
+  defaultMode,
+
+  /// Store temp data in a file.
+  file,
+
+  /// Store temp data in memory (faster).
+  memory,
+}
+
 /// Callback for database creation (first time) or migration.
 typedef DatabaseCallback = Future<void> Function(
   DatabaseExecutor db,
@@ -53,6 +65,7 @@ class DatabaseConfig {
   const DatabaseConfig({
     required this.path,
     this.version = 1,
+    this.useSynchronousMode = false,
     this.onCreate,
     this.onUpgrade,
     this.onDowngrade,
@@ -63,6 +76,10 @@ class DatabaseConfig {
     this.maxReadConnections = 3,
     this.statementCacheSize = 100,
     this.enableLogging = false,
+    this.pageSize = 4096,
+    this.cacheSize = -8000,
+    this.mmapSize = 268435456,
+    this.tempStore = TempStore.memory,
   }) : assert(
           !encrypted || encryptionKey != null,
           'encryptionKey is required when encrypted is true',
@@ -103,4 +120,21 @@ class DatabaseConfig {
 
   /// Whether to log all queries and timings. Defaults to false.
   final bool enableLogging;
+
+  /// When true, all database operations run synchronously on the
+  /// calling thread via direct FFI calls instead of a background isolate.
+  /// Eliminates ~1000µs of isolate round-trip overhead per operation.
+  final bool useSynchronousMode;
+
+  /// SQLite page size in bytes. Default 4096 matches Android memory page size.
+  final int pageSize;
+
+  /// SQLite page cache size. Negative = KB (e.g. -8000 = 8MB). Default -8000.
+  final int cacheSize;
+
+  /// Memory-mapped I/O size in bytes. Default 256MB (268435456). Set 0 to disable.
+  final int mmapSize;
+
+  /// Where to store temporary tables. Default: memory.
+  final TempStore tempStore;
 }

@@ -1,4 +1,5 @@
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/sqlite3.dart'
+    show Database, PreparedStatement, ResultSet, SqliteException;
 
 import '../exceptions/exceptions.dart';
 import '../utils/logger.dart';
@@ -27,7 +28,7 @@ class QueryExecutor {
         _db.execute(sql);
       } else {
         final stmt = _cache.get(sql);
-        stmt.execute(_convertParams(parameters));
+        stmt.execute(convertParams(parameters));
       }
     } on SqliteException catch (e) {
       throw _wrapException(e, sql);
@@ -46,13 +47,7 @@ class QueryExecutor {
         _logger != null ? (Stopwatch()..start()) : null;
 
     try {
-      final stmt = _cache.get(sql);
-      final ResultSet resultSet;
-      if (parameters == null || parameters.isEmpty) {
-        resultSet = stmt.select();
-      } else {
-        resultSet = stmt.select(_convertParams(parameters));
-      }
+      final resultSet = _selectRaw(sql, parameters);
       return _mapResults(resultSet);
     } on SqliteException catch (e) {
       throw _wrapException(e, sql);
@@ -61,6 +56,28 @@ class QueryExecutor {
         stopwatch.stop();
         _logger!.logTiming(sql, stopwatch.elapsed);
       }
+    }
+  }
+
+  /// Executes a SELECT query and returns the raw [ResultSet].
+  ///
+  /// Avoids Map allocation overhead — caller accesses results by column index.
+  ResultSet queryRaw(String sql, [List<Object?>? parameters]) {
+    _logger?.logQuery(sql, parameters);
+    try {
+      return _selectRaw(sql, parameters);
+    } on SqliteException catch (e) {
+      throw _wrapException(e, sql);
+    }
+  }
+
+  /// Internal: runs a SELECT and returns the raw ResultSet.
+  ResultSet _selectRaw(String sql, [List<Object?>? parameters]) {
+    final stmt = _cache.get(sql);
+    if (parameters == null || parameters.isEmpty) {
+      return stmt.select();
+    } else {
+      return stmt.select(convertParams(parameters));
     }
   }
 
@@ -73,9 +90,9 @@ class QueryExecutor {
     try {
       final stmt = _cache.get(sql);
       if (parameters != null && parameters.isNotEmpty) {
-        stmt.execute(_convertParams(parameters));
+        stmt.execute(convertParams(parameters));
       } else {
-        stmt.execute([]);
+        stmt.execute(const <Object?>[]);
       }
       return _db.lastInsertRowId;
     } on SqliteException catch (e) {
@@ -97,9 +114,9 @@ class QueryExecutor {
     try {
       final stmt = _cache.get(sql);
       if (parameters != null && parameters.isNotEmpty) {
-        stmt.execute(_convertParams(parameters));
+        stmt.execute(convertParams(parameters));
       } else {
-        stmt.execute([]);
+        stmt.execute(const <Object?>[]);
       }
       return _db.updatedRows;
     } on SqliteException catch (e) {
@@ -112,9 +129,9 @@ class QueryExecutor {
     }
   }
 
-  /// Converts parameters, replacing `null` with appropriate SQLite null.
+  /// Converts parameters, replacing `bool` and `DateTime` with SQLite types.
   /// Returns the original list if no conversion is needed to avoid allocation.
-  List<Object?> _convertParams(List<Object?> parameters) {
+  List<Object?> convertParams(List<Object?> parameters) {
     // Fast path: check if any conversion is needed
     var needsConversion = false;
     for (final p in parameters) {
@@ -135,17 +152,14 @@ class QueryExecutor {
   /// Maps a ResultSet to a list of maps.
   List<Map<String, Object?>> _mapResults(ResultSet resultSet) {
     final columns = resultSet.columnNames;
-    final columnCount = columns.length;
     final rows = resultSet.rows;
-    final result = List<Map<String, Object?>>.generate(rows.length, (index) {
-      final row = rows[index];
-      final map = <String, Object?>{};
-      for (var i = 0; i < columnCount; i++) {
-        map[columns[i]] = row[i];
-      }
-      return map;
-    });
-    return result;
+    if (rows.isEmpty) return const [];
+    // Use Map.fromIterables for efficient single-pass construction
+    return List<Map<String, Object?>>.generate(
+      rows.length,
+      (i) => Map<String, Object?>.fromIterables(columns, rows[i]),
+      growable: false,
+    );
   }
 
   /// Wraps a SQLite exception into a sql_speed exception.

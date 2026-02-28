@@ -1,7 +1,8 @@
 import 'dart:async';
 
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/sqlite3.dart' hide DatabaseConfig;
 
+import '../database/database_config.dart';
 import '../exceptions/exceptions.dart';
 import 'statement_cache.dart';
 
@@ -60,7 +61,7 @@ class ConnectionPool {
   bool get _isMemory => path == ':memory:';
 
   /// Opens the connection pool.
-  void open() {
+  void open({DatabaseConfig? config}) {
     if (_disposed) {
       throw const DatabaseClosedException();
     }
@@ -70,6 +71,13 @@ class ConnectionPool {
     writeDb.execute('PRAGMA journal_mode=WAL');
     writeDb.execute('PRAGMA synchronous=NORMAL');
     writeDb.execute('PRAGMA foreign_keys=ON');
+    // Performance PRAGMAs
+    writeDb.execute('PRAGMA page_size=${config?.pageSize ?? 4096}');
+    writeDb.execute('PRAGMA cache_size=${config?.cacheSize ?? -8000}');
+    writeDb.execute('PRAGMA mmap_size=${config?.mmapSize ?? 268435456}');
+    writeDb.execute(
+        'PRAGMA temp_store=${(config?.tempStore ?? TempStore.memory).index}');
+    writeDb.execute('PRAGMA wal_autocheckpoint=1000');
     _writeConnection = PooledConnection(
       writeDb,
       statementCacheSize: statementCacheSize,
@@ -81,8 +89,11 @@ class ConnectionPool {
       // a separate database, so reads must go through the write connection.
       for (var i = 0; i < maxReadConnections; i++) {
         final readDb = sqlite3.open(path, mode: OpenMode.readOnly);
-        // WAL mode is file-level; set by the write connection.
-        // Read connections inherit it automatically.
+        // Apply read-only PRAGMAs
+        readDb.execute('PRAGMA cache_size=${config?.cacheSize ?? -8000}');
+        readDb.execute('PRAGMA mmap_size=${config?.mmapSize ?? 268435456}');
+        readDb.execute(
+            'PRAGMA temp_store=${(config?.tempStore ?? TempStore.memory).index}');
         _readConnections.add(
           PooledConnection(readDb, statementCacheSize: statementCacheSize),
         );

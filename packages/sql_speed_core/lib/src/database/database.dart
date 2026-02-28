@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import '../batch/batch_executor.dart';
-import '../engine/isolate_engine.dart';
+import '../engine/database_engine.dart';
 import '../exceptions/exceptions.dart';
 import '../query_builder/delete_builder.dart';
 import '../query_builder/insert_builder.dart';
@@ -24,7 +24,7 @@ import 'database_config.dart';
 /// ```
 class SqlSpeedDatabase {
   SqlSpeedDatabase._({
-    required IsolateEngine engine,
+    required DatabaseEngine engine,
     required this.config,
   })  : _engine = engine,
         _streamManager = StreamManager(),
@@ -32,13 +32,13 @@ class SqlSpeedDatabase {
 
   /// Internal factory used by [SqlSpeed.openWithConfig].
   static SqlSpeedDatabase create({
-    required IsolateEngine engine,
+    required DatabaseEngine engine,
     required DatabaseConfig config,
   }) {
     return SqlSpeedDatabase._(engine: engine, config: config);
   }
 
-  final IsolateEngine _engine;
+  final DatabaseEngine _engine;
   final StreamManager _streamManager;
   final TypeMapper _typeMapper;
   bool _closed = false;
@@ -78,6 +78,18 @@ class SqlSpeedDatabase {
     return _engine.query(sql, parameters);
   }
 
+  /// Executes a SELECT and returns raw row data (column-indexed).
+  ///
+  /// Faster than [query] when Map overhead is unnecessary.
+  /// Each inner list contains values in column order.
+  Future<List<List<Object?>>> queryRaw(
+    String sql, [
+    List<Object?>? parameters,
+  ]) {
+    _ensureOpen();
+    return _engine.queryRaw(sql, parameters);
+  }
+
   /// Executes an INSERT and returns the last insert row ID.
   ///
   /// ```dart
@@ -88,7 +100,10 @@ class SqlSpeedDatabase {
   /// ```
   Future<int> insert(String sql, [List<Object?>? parameters]) {
     _ensureOpen();
-    return _engine.insert(sql, parameters).then((id) {
+    final future = _engine.insert(sql, parameters);
+    // Skip .then() closure overhead when no streams are watching
+    if (_streamManager.activeCount == 0) return future;
+    return future.then((id) {
       _notifyTablesChanged(sql);
       return id;
     });
@@ -104,7 +119,9 @@ class SqlSpeedDatabase {
   /// ```
   Future<int> update(String sql, [List<Object?>? parameters]) {
     _ensureOpen();
-    return _engine.update(sql, parameters).then((count) {
+    final future = _engine.update(sql, parameters);
+    if (_streamManager.activeCount == 0) return future;
+    return future.then((count) {
       _notifyTablesChanged(sql);
       return count;
     });
@@ -117,7 +134,9 @@ class SqlSpeedDatabase {
   /// ```
   Future<int> delete(String sql, [List<Object?>? parameters]) {
     _ensureOpen();
-    return _engine.update(sql, parameters).then((count) {
+    final future = _engine.update(sql, parameters);
+    if (_streamManager.activeCount == 0) return future;
+    return future.then((count) {
       _notifyTablesChanged(sql);
       return count;
     });

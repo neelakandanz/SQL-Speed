@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:sqlite3/sqlite3.dart' hide DatabaseConfig;
 
+import '../engine/database_engine.dart';
 import '../engine/isolate_engine.dart';
+import '../engine/sync_engine.dart';
 import '../migration/backup_manager.dart';
 import '../migration/migration_engine.dart';
 import 'database.dart';
@@ -36,6 +38,7 @@ class SqlSpeed {
     int maxReadConnections = 3,
     int statementCacheSize = 100,
     bool enableLogging = false,
+    bool useSynchronousMode = false,
   }) async {
     final config = DatabaseConfig(
       path: path,
@@ -50,6 +53,7 @@ class SqlSpeed {
       maxReadConnections: maxReadConnections,
       statementCacheSize: statementCacheSize,
       enableLogging: enableLogging,
+      useSynchronousMode: useSynchronousMode,
     );
 
     return openWithConfig(config);
@@ -64,8 +68,13 @@ class SqlSpeed {
       await _runMigrations(config);
     }
 
-    // Start the background isolate engine
-    final engine = await IsolateEngine.start(config);
+    // Choose engine based on config
+    final DatabaseEngine engine;
+    if (config.useSynchronousMode) {
+      engine = SyncEngine.open(config);
+    } else {
+      engine = await IsolateEngine.start(config);
+    }
 
     if (isMemory) {
       // For in-memory databases, run migrations through the engine
@@ -76,9 +85,9 @@ class SqlSpeed {
     return SqlSpeedDatabase.create(engine: engine, config: config);
   }
 
-  /// Runs migrations for in-memory databases through the isolate engine.
+  /// Runs migrations for in-memory databases through the engine.
   static Future<void> _runInMemoryMigrations(
-    IsolateEngine engine,
+    DatabaseEngine engine,
     DatabaseConfig config,
   ) async {
     final executor = _EngineExecutor(engine);
@@ -145,11 +154,11 @@ class SqlSpeed {
   }
 }
 
-/// A [DatabaseExecutor] that delegates to an [IsolateEngine].
+/// A [DatabaseExecutor] that delegates to a [DatabaseEngine].
 class _EngineExecutor implements DatabaseExecutor {
   _EngineExecutor(this._engine);
 
-  final IsolateEngine _engine;
+  final DatabaseEngine _engine;
 
   @override
   Future<void> execute(String sql, [List<Object?>? parameters]) =>
